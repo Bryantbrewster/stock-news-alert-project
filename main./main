@@ -1,0 +1,107 @@
+## STEP 1: Use https://www.alphavantage.co
+# When STOCK price increase/decreases by 5% between yesterday and the day before yesterday then print("Get News").
+
+## STEP 2: Use https://newsapi.org
+# Instead of printing ("Get News"), actually get the first 3 news pieces for the COMPANY_NAME. 
+
+## STEP 3: Use https://www.twilio.com
+# Send a separate message with the percentage change and each article's title and description to your phone number.
+
+
+#Optional: Format the SMS message like this: 
+"""
+TSLA: 🔺2%
+Headline: Were Hedge Funds Right About Piling Into Tesla Inc. (TSLA)?. 
+Brief: We at Insider Monkey have gone over 821 13F filings that hedge funds and prominent investors are required to file by the SEC The 13F filings show the funds' and investors' portfolio positions as of March 31st, near the height of the coronavirus market crash.
+or
+"TSLA: 🔻5%
+Headline: Were Hedge Funds Right About Piling Into Tesla Inc. (TSLA)?. 
+Brief: We at Insider Monkey have gone over 821 13F filings that hedge funds and prominent investors are required to file by the SEC The 13F filings show the funds' and investors' portfolio positions as of March 31st, near the height of the coronavirus market crash.
+"""
+
+# import requests for the APIs and twilio stuff for the sms messaging
+import requests
+from twilio.rest import Client
+
+
+# twilio account_sid/auth_token, and initialize client object
+account_sid = 'AC99fd4a440b59faee41bef12b01daf271'
+auth_token = '6f5ccf44acdc189f435f4b162bc1b375'
+client = Client(account_sid, auth_token)
+
+
+STOCK = "TSLA"
+COMPANY_NAME = "Tesla Inc"
+
+
+# stock & news API keys
+alphavantage_api_key = '2E198QGO6OWMW1GL'
+news_api_key = '7acf4bd6c7e14cc0877546f419b2e282'
+
+# stock api key paramaters
+params={
+    "function": "TIME_SERIES_DAILY",
+    "symbol": STOCK,
+    "outputsize": "compact",
+    "apikey": alphavantage_api_key
+}
+# stock api request
+response = requests.get(url="https://www.alphavantage.co/query", params=params)
+response.raise_for_status()
+# fully stock data (time-period=daily)
+stock_data = response.json()
+
+# parses the dictionary down to only keep the "Time Series (Daily)" key and corresponding values
+# this gets rid of the metadata key, keeps only the price (i.e. relevant info), and makes it easier to dig into
+daily_prices = stock_data["Time Series (Daily)"]
+
+# now that the dict only contains the price data, I can turn the keys into a list, which allows me to just grab the
+# first index (previous day) and the second index (day before that). These can be assigned to variables, and will be
+# dynamic and change each day.
+current_trading_day = list(daily_prices.keys())[0]
+previous_trading_day = list(daily_prices.keys())[1]
+
+# use the dynamic dates resulting from the list indexes above, to grab the closing prices
+current_day_close = float(daily_prices[current_trading_day]["4. close"])
+print(current_day_close)
+previous_day_close = float(daily_prices[previous_trading_day]["4. close"])
+print(previous_day_close)
+
+# calculate the raw dollar value change, and then the percent change
+dollar_value_change = (current_day_close - previous_day_close)
+percent_change = round(((dollar_value_change / previous_day_close)*100), 1)
+
+# assigning what verbiage to use for the sms later on
+if percent_change > 0:
+    change_direction = "up"
+else:
+    change_direction = "down"
+
+# news website API parameters
+news_params ={
+    "apiKey": news_api_key,
+    "q": COMPANY_NAME,
+    "from": current_trading_day,
+    "sortBy": "popularity",
+}
+
+# news website api request
+news_response = requests.get(url='https://newsapi.org/v2/everything', params=news_params)
+news_response.raise_for_status()
+news_data = news_response.json()
+
+# grabs the first 3 headlines from the news data, and puts them into a list
+news_headlines_list = [news_data["articles"][0]["title"], news_data["articles"][1]["title"],
+                       news_data["articles"][2]["title"]]
+
+# if it is a big enough % change, it runs a for loop, using each of the top 3 headlines, and sends a text to myself
+if percent_change > 5 or percent_change < -5:
+    for headline in news_headlines_list:
+        message = client.messages \
+            .create(
+            body=f"{STOCK} {change_direction} {percent_change}%\nTitle: {headline}",
+            from_='+12077073712',
+            to='+19076026232'
+        )
+        print(message.status)
+
